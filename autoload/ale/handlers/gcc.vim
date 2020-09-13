@@ -49,6 +49,42 @@ function! s:ParseInlinedFunctionProblems(buffer, lines) abort
 endfunction
 
 " Report problems inside of header files just for gcc and clang
+"
+" Output from clang:
+"     In file included from <stdin>:1:
+"     ./header_1.hpp:1:2: warning: A warning. [-W#warnings]
+"     #warning A warning.
+"      ^
+"     In file included from <stdin>:2:
+"     In file included from ./header_recursive.hpp:1:
+"     In file included from ./header_recursive_1.hpp:1:
+"     ./header_recursive_2.hpp:1:2: warning: Another warning. [-W#warnings]
+"     #warning Another warning.
+"      ^
+"     In file included from <stdin>:3:
+"     ./header_2.hpp:1:2: warning: A warning - again. [-W#warnings]
+"     #warning A warning - again.
+"      ^
+"     3 warnings generated.
+" Output from gcc:
+"     header_1.hpp:1:2: warning: #warning A warning. [-Wcpp]
+"         1 | #warning A warning.
+"           |  ^~~~~~~
+"     In file included from header_recursive_1.hpp:1,
+"                      from header_recursive.hpp:1,
+"                      from <stdin>:2:
+"     header_recursive_2.hpp:1:2: warning: #warning Another warning. [-Wcpp]
+"         1 | #warning Another warning.
+"           |  ^~~~~~~
+"     In file included from <stdin>:3:
+"     header_2.hpp:1:2: warning: #warning A warning - again. [-Wcpp]
+"         1 | #warning A warning - again.
+"           |  ^~~~~~~
+" Common denominator:
+" - we start collecting problem information when '\v^In file included from'
+"   matches,
+" - we assume the problem report is complete when s:pattern matches. The file
+"   name should not be '<stdin>' then.
 function! s:ParseProblemsInHeaders(buffer, lines) abort
     let l:output = []
     let l:include_item = {}
@@ -57,9 +93,10 @@ function! s:ParseProblemsInHeaders(buffer, lines) abort
         let l:include_match = matchlist(l:line, '\v^In file included from')
 
         if !empty(l:include_item)
+            let l:include_item.detail .= "\n" . l:line
             let l:pattern_match = matchlist(l:line, s:pattern)
 
-            if !empty(l:pattern_match) && l:pattern_match[1] is# '<stdin>'
+            if !empty(l:pattern_match) && l:pattern_match[1] isnot# '<stdin>'
                 if has_key(l:include_item, 'lnum')
                     call add(l:output, l:include_item)
                 endif
@@ -68,8 +105,6 @@ function! s:ParseProblemsInHeaders(buffer, lines) abort
 
                 continue
             endif
-
-            let l:include_item.detail .= "\n" . l:line
         endif
 
         if !empty(l:include_match)
