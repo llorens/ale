@@ -17,6 +17,11 @@ function! s:IsHeaderFile(filename) abort
     return a:filename =~? '\v\.(h|hpp)$'
 endfunction
 
+function! s:IsError(problem_match) abort
+    return (a:problem_match[4] is# 'error'
+                \ || a:problem_match[4] is# 'fatal error')
+endfunction
+
 function! s:RemoveUnicodeQuotes(text) abort
     let l:text = a:text
     let l:text = substitute(l:text, '[`´‘’]', '''', 'g')
@@ -37,7 +42,7 @@ function! s:ParseInlinedFunctionProblems(buffer, lines) abort
             call add(l:output, {
             \   'lnum': str2nr(l:pos_match[1]),
             \   'col': str2nr(l:pos_match[2]),
-            \   'type': (l:match[4] is# 'error' || l:match[4] is# 'fatal error') ? 'E' : 'W',
+            \   'type': s:IsError(l:match) ? 'E' : 'W',
             \   'text': s:RemoveUnicodeQuotes(l:match[5]),
             \})
         endif
@@ -88,6 +93,14 @@ endfunction
 function! s:ParseProblemsInHeaders(buffer, lines) abort
     let l:output = []
     let l:include_item = {}
+    let l:info_error = {
+                \ 'text': 'Error found in header. See :ALEDetail',
+                \ 'type': 'E',
+                \ }
+    let l:info_warning = {
+                \ 'text': 'Warning found in header. See :ALEDetail',
+                \ 'type': 'W',
+                \ }
 
     for l:line in a:lines[: -2]
         let l:include_match = matchlist(l:line, '\v^In file included from')
@@ -97,6 +110,10 @@ function! s:ParseProblemsInHeaders(buffer, lines) abort
             let l:pattern_match = matchlist(l:line, s:pattern)
 
             if !empty(l:pattern_match) && l:pattern_match[1] isnot# '<stdin>'
+                if ! s:IsError(l:pattern_match)
+                    call extend(l:include_item, l:info_warning)
+                endif
+
                 if has_key(l:include_item, 'lnum')
                     call add(l:output, l:include_item)
                 endif
@@ -113,6 +130,7 @@ function! s:ParseProblemsInHeaders(buffer, lines) abort
                 \   'text': 'Error found in header. See :ALEDetail',
                 \   'detail': l:line,
                 \}
+                call extend(l:include_item, l:info_error)
             endif
         endif
 
@@ -163,7 +181,7 @@ function! ale#handlers#gcc#HandleGCCFormat(buffer, lines) abort
 
         let l:item = {
         \   'lnum': str2nr(l:match[2]),
-        \   'type': (l:match[4] is# 'error' || l:match[4] is# 'fatal error') ? 'E' : 'W',
+        \   'type': s:IsError(l:match) ? 'E' : 'W',
         \   'text': s:RemoveUnicodeQuotes(l:match[5]),
         \}
 
